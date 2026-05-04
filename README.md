@@ -2,9 +2,9 @@
 
 # Formulaar1
 
-This is a small tool that I have written to attempt to automate Formula 1 Release pushes to Sonarr.
+This is a small tool that I have written to attempt to automate Formula 1, Formula 2, and Formula 3 release pushes to Sonarr.
 
-Currently this only works on Linux setups due toi hardlinking and no access for me to test on a Windows setup.
+Hardlinking is supported on both Linux/macOS and Windows.
 
 ```mermaid
 graph LR
@@ -24,6 +24,7 @@ Pre Built Binary.
 
 	```json
 	  "TorrentClient": "qBittorrent", //Currently only qBittorrent is supported
+	  "Hardlinkpath": "/full/path/to/hardlink/folder", //Folder where hardlinks are created before Sonarr imports them
 	  "APICredentials": {
 		"Sonarr": {
 		  "ApiKey": "", //Key from the general tab in Sonarr
@@ -33,6 +34,10 @@ Pre Built Binary.
 		  "Username": "", //qBittorrent Web Username
 		  "Password": "", //qBittorrent Web Password
 		  "BasePath": "http://127.0.0.1:10169" //Full URL to the qBittorrent API
+		},
+		"bugsnag": {
+		  "apiKey": "", //Optional: your own Bugsnag project API key for error reporting
+		  "enabled": false //Set to true if you supply a Bugsnag API key above
 		}
 	  }
 	  ```

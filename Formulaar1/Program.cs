@@ -2,7 +2,7 @@ using APIv3SonarrDotcore.Api;
 using APIv3SonarrDotcore.Model;
 using Microsoft.AspNetCore.Http.Extensions;
 using QBittorrent.Client;
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using static Formulaar1.Helpers;
@@ -26,7 +26,7 @@ namespace Formulaar1
 
         private static QBittorrentClient? _qBittorrentClient;
 
-        private static List<ReleaseResource> _hashes = new List<ReleaseResource>();
+        private static ConcurrentBag<ReleaseResource> _hashes = new ConcurrentBag<ReleaseResource>();
 
         private static System.Timers.Timer _timer = new System.Timers.Timer();
 
@@ -80,7 +80,6 @@ namespace Formulaar1
 
                 _seriesApi = new SeriesApi();
                 //_seasonPassApi = new SeasonPassApi();
-                _episodeApi = new EpisodeApi();
                 _episodeApi = new EpisodeApi();
                 _releasePushApi = new ReleasePushApi();
                 //_queueStatusApi = new QueueStatusApi();
@@ -167,10 +166,9 @@ namespace Formulaar1
 
                     var tmpReleasePost = await context.Request.ReadFromJsonAsync<POSTReleasePush>();
 
-                    Console.WriteLine($"Processing {tmpReleasePost.SeriesTitle}");
-
                     if (tmpReleasePost != null && tmpReleasePost.Protocol != null)
                     {
+                        Console.WriteLine($"Processing {tmpReleasePost.SeriesTitle}");
 
                         _ = Enum.TryParse(char.ToUpper(tmpReleasePost.Protocol[0]) + tmpReleasePost.Protocol.Substring(1), out DownloadProtocol Protocol);
 
@@ -187,129 +185,120 @@ namespace Formulaar1
 
                         try
                         {
+                            var normalisedTitle = ReleasePost.Title?.Replace(".", " ").Replace("-", " ") ?? string.Empty;
+                            var seriesInfo = DetectSeries(normalisedTitle);
 
-                            var Series = await _seriesApi.ApiV3SeriesGetAsync(387219);
-                            if (ReleasePost != null && ReleasePost.Title != null && (ReleasePost.Title.Contains("Formula 1") || ReleasePost.Title.Contains("Formula1")))
+                            if (ReleasePost != null && ReleasePost.Title != null && seriesInfo != null)
                             {
-                                _ = int.TryParse(Regex.Match(ReleasePost.Title, @"(?:(?:18|19|20|21)[0-9]{2})").ToString(), out int SeasonID);
-                                var Country = Countries.FirstOrDefault(x => ReleasePost.Title.ToLower().Contains(x.Key.ToLower()) || ReleasePost.Title.ToLower().Contains(x.Key.ToLower())).Value;
-                                var ShowType = Regex.Match(ReleasePost.Title, @"(Qualifying|Race|Shootout|Sprint|Qually|Qualy)|((Practice|Practise)((.One|.Two|.Three|[0-9]|.[0-9])|(One|Two|Three|[0-9]|.[0-9])))|((fp)([0-9]))", RegexOptions.IgnoreCase).ToString();
+                                _ = int.TryParse(Regex.Match(normalisedTitle, @"(?:(?:18|19|20|21)[0-9]{2})").ToString(), out int SeasonID);
+                                var Country = Countries.FirstOrDefault(x => normalisedTitle.Contains(x.Key, StringComparison.OrdinalIgnoreCase)).Value;
+
+                                var ShowType = NormaliseShowType(normalisedTitle);
                                 Console.WriteLine($"ShowType: {ShowType}");
-                                ShowType = ShowType.Replace("One", "1");
-                                ShowType = ShowType.Replace("Two", "2");
-                                ShowType = ShowType.Replace("Three", "3");
-                                ShowType = ShowType.Replace("one", "1");
-                                ShowType = ShowType.Replace("two", "2");
-                                ShowType = ShowType.Replace("three", "3");
-                                ShowType = ShowType.Replace("FP1", "Practice 1");
-                                ShowType = ShowType.Replace("FP2", "Practice 2");
-                                ShowType = ShowType.Replace("FP3", "Practice 3");
-                                ShowType = ShowType.Replace("Qually", "Qualifying");
-                                ShowType = ShowType.Replace("Qualy", "Qualifying");
 
-                                if (string.IsNullOrWhiteSpace(ShowType))
+                                if (ShowType == null)
                                 {
-                                    //Lets assume its a Race
-                                    ShowType = "Race";
-                                    Console.WriteLine($"**Override ShowType: {ShowType}");
+                                    Console.WriteLine($"Dropping unrecognised/unwanted session type: {ReleasePost.Title}");
                                 }
-
-                                if (Country != null)
+                                else if (Country != null)
                                 {
-                                        //Get all Episodes
-                                        var tmp = await _episodeApi.ApiV3EpisodeGetAsync(Series[0].Id);
-                                        //Find Correct Year
-                                        var tmp1 = tmp.Where(x => x.SeasonNumber == SeasonID);
-                                        //Find Correct Country
-                                        var tmp2 = tmp1.Where(x => x.Title.Contains(Country));
-                                        //Find correct race Episode
-                                        IEnumerable<EpisodeResource> tmp3;
-                                        if (ShowType == "Sprint")
-                                        {
-                                            tmp3 = tmp2.Where(x => x.Title.Contains(ShowType) && !x.Title.Contains("Shootout"));
-                                        }
-                                        else
-                                        {
-                                            tmp3 = tmp2.Where(x => x.Title.Contains(ShowType));
-                                        }
+                                    var Series = await _seriesApi.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
+                                    //Get all Episodes
+                                    var tmp = await _episodeApi.ApiV3EpisodeGetAsync(Series[0].Id);
+                                    //Find Correct Year
+                                    var tmp1 = tmp.Where(x => x.SeasonNumber == SeasonID);
+                                    //Find Correct Country
+                                    var tmp2 = tmp1.Where(x => x.Title.Contains(Country, StringComparison.OrdinalIgnoreCase));
+                                    //Find correct session episode
+                                    IEnumerable<EpisodeResource> tmp3 = GetEpisodesByShowType(tmp2, seriesInfo.Title, ShowType);
 
-                                        var Episode = tmp3.FirstOrDefault();
+                                    var Episode = tmp3.FirstOrDefault();
 
-                                        if (Episode != null)
-                                        {
-
-                                            var Quality = Regex.Match(ReleasePost.Title, @"(1080P|1080P|720P|480P|240P)", RegexOptions.IgnoreCase);
-
-                                            var SeriesMap = await _seriesApi.ApiV3SeriesIdGetAsync(Episode.SeriesId);
-
-                                            if (SeriesMap != null)
-                                            {
-                                                if (SeriesMap.Title == "Formula 1")
-                                                {
-                                                    var SceneMapping = new AlternateTitleResource() { Title = Episode.Title, SeasonNumber = Episode.SeasonNumber, SceneSeasonNumber = Episode.SceneSeasonNumber };
-
-                                                    ReleasePost.SceneMapping = SceneMapping;
-                                                    ReleasePost.TvdbId = SeriesMap.TvdbId;
-                                                    ReleasePost.Title = $"{SeriesMap.Title} - S{Episode.SeasonNumber}E{string.Format("{0:00}", Episode.EpisodeNumber)} - {Episode.Title} {Quality}";
-                                                    ReleasePost.SeriesId = SeriesMap.Id;
-                                                    ReleasePost.SeasonNumber = Episode.SeasonNumber;
-                                                    ReleasePost.EpisodeNumbers = new List<int?>() { Episode.EpisodeNumber };
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine(ex.ToString());
-                                if (bugsnagEnabled)
-                                {
-                                    _bugsnag.Notify(ex);
-                                }
-                            }
-
-
-                            try
-                            {
-
-                                var response = await _releasePushApi.ApiV3ReleasePushPostAsync(ReleasePost);
-
-                                if (response != null)
-                                {
-                                    foreach (var r in response)
+                                    if (Episode != null)
                                     {
-                                        if (r.Rejected == false)
+                                        var Quality = Regex.Match(ReleasePost.Title, @"(2160[Pp]|4[Kk]|1080[Pp]|720[Pp]|480[Pp]|240[Pp])", RegexOptions.IgnoreCase);
+
+                                        var SeriesMap = await _seriesApi.ApiV3SeriesIdGetAsync(Episode.SeriesId);
+
+                                        if (SeriesMap != null)
                                         {
-                                            _hashes.Add(r);
+                                            var SceneMapping = new AlternateTitleResource() { Title = Episode.Title, SeasonNumber = Episode.SeasonNumber, SceneSeasonNumber = Episode.SceneSeasonNumber };
+
+                                            ReleasePost.SceneMapping = SceneMapping;
+                                            ReleasePost.TvdbId = SeriesMap.TvdbId;
+                                            ReleasePost.Title = $"{SeriesMap.Title} - S{Episode.SeasonNumber}E{string.Format("{0:00}", Episode.EpisodeNumber)} - {Episode.Title} {Quality}";
+                                            ReleasePost.SeriesId = SeriesMap.Id;
+                                            ReleasePost.SeasonNumber = Episode.SeasonNumber;
+                                            ReleasePost.EpisodeNumbers = new List<int?>() { Episode.EpisodeNumber };
                                         }
                                     }
                                 }
-
-                                var result = response;
-
-                                Console.WriteLine($"Pushing to Sonarr: {ReleasePost.Title}");
-
-                                await context.Response.WriteAsJsonAsync(result);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine(ex.ToString());
-                                if (bugsnagEnabled)
+                                else
                                 {
-                                    _bugsnag.Notify(ex);
+                                    Console.WriteLine($"No matching country found in: {ReleasePost.Title}");
                                 }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                            if (bugsnagEnabled)
+                            {
+                                _bugsnag.Notify(ex);
+                            }
+                        }
+
+                        try
+                        {
+                            var response = await _releasePushApi.ApiV3ReleasePushPostAsync(ReleasePost);
+
+                            if (response != null)
+                            {
+                                foreach (var r in response)
+                                {
+                                    if (r.Rejected == false)
+                                    {
+                                        _hashes.Add(r);
+                                    }
+                                }
+                            }
+
+                            var result = response;
+
+                            Console.WriteLine($"Pushing to Sonarr: {ReleasePost.Title}");
+
+                            await context.Response.WriteAsJsonAsync(result);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                            if (bugsnagEnabled)
+                            {
+                                _bugsnag.Notify(ex);
                             }
                         }
                     }
                 }
+            }
             });
 
             app.Run();
         }
 
-        [DllImport("libc")]
-        static extern int link(string oldpath, string newpath);
+        [DllImport("libc", EntryPoint = "link")]
+        static extern int link_unix(string oldpath, string newpath);
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool CreateHardLinkW(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+        private static int HardLink(string oldpath, string newpath)
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return CreateHardLinkW(newpath, oldpath, IntPtr.Zero) ? 0 : -1;
+            }
+            return link_unix(oldpath, newpath);
+        }
         private static async void _checkEvents(object? sender, System.Timers.ElapsedEventArgs e)
         {
             if (!running)
@@ -373,28 +362,32 @@ namespace Formulaar1
                                                     nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part1{ofInfo.Extension}");
 
                                                     Console.WriteLine($"Hard Linking {ofInfo.Name} to {nfInfo.Name}");
-                                                    int linkResult = link(ofInfo.ToString(), nfInfo.ToString());
+                                                    int linkResult = HardLink(ofInfo.ToString(), nfInfo.ToString());
+                                                    if (linkResult != 0) Console.WriteLine($"Hard link failed (code {linkResult}): {ofInfo.Name}");
                                                 }
                                                 else if (ofInfo.Name.ToLower().Contains("session"))
                                                 {
                                                     nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part2{ofInfo.Extension}");
 
                                                     Console.WriteLine($"Hard Linking {ofInfo.Name} to {nfInfo.Name}");
-                                                    int linkResult = link(ofInfo.ToString(), nfInfo.ToString());
+                                                    int linkResult = HardLink(ofInfo.ToString(), nfInfo.ToString());
+                                                    if (linkResult != 0) Console.WriteLine($"Hard link failed (code {linkResult}): {ofInfo.Name}");
                                                 }
                                                 else if (ofInfo.Name.ToLower().Contains("analysis"))
                                                 {
                                                     nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part3{ofInfo.Extension}");
 
                                                     Console.WriteLine($"Hard Linking {ofInfo.Name} to {nfInfo.Name}");
-                                                    int linkResult = link(ofInfo.ToString(), nfInfo.ToString());
+                                                    int linkResult = HardLink(ofInfo.ToString(), nfInfo.ToString());
+                                                    if (linkResult != 0) Console.WriteLine($"Hard link failed (code {linkResult}): {ofInfo.Name}");
                                                 }
                                                 else
                                                 {
                                                     if (!File.Exists(nfInfo.ToString()))
                                                     {
                                                         Console.WriteLine($"Hard Linking {ofInfo.Name} to {nfInfo.Name}");
-                                                        int linkResult = link(ofInfo.ToString(), nfInfo.ToString());
+                                                        int linkResult = HardLink(ofInfo.ToString(), nfInfo.ToString());
+                                                        if (linkResult != 0) Console.WriteLine($"Hard link failed (code {linkResult}): {ofInfo.Name}");
                                                     }
                                                 }
                                             }
@@ -422,8 +415,8 @@ namespace Formulaar1
                                             if (!File.Exists(nfInfo.ToString()))
                                             {
                                                 Console.WriteLine($"Hard Linking File {ofInfo.Name} to {nfInfo.Name}");
-                                                int linkResult = link(ofInfo.ToString(), nfInfo.ToString());
-                                                Console.WriteLine(linkResult);
+                                                int linkResult = HardLink(ofInfo.ToString(), nfInfo.ToString());
+                                                if (linkResult != 0) Console.WriteLine($"Hard link failed (code {linkResult}): {ofInfo.Name}");
                                             }
 
                                             var commandResource = new CommandResource
@@ -438,7 +431,7 @@ namespace Formulaar1
                                             Console.WriteLine($"Sending Command:{commandResource.Name} Mode:{commandResource.ImportMode} Torrent:{torrent.Name} for path \"{commandResource.Path}\"");
                                         }
 
-                                        _hashes.Remove(r);
+                                        _hashes = new ConcurrentBag<ReleaseResource>(_hashes.Except(new[] { r }));
                                     }
                                 }
                             }

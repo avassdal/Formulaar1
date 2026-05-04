@@ -25,8 +25,8 @@ namespace Formulaar1
         {
             var queryString = context.Request.QueryString.Value ?? string.Empty;
 
-            // Prowlarr aggregate Newznab endpoint
-            var prowlarrUrl = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/indexer/all/newznab{queryString}";
+            // Prowlarr aggregate Newznab endpoint (id=0 = all indexers)
+            var prowlarrUrl = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/search{queryString}";
             if (!prowlarrUrl.Contains("apikey="))
                 prowlarrUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
 

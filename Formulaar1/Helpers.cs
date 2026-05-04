@@ -87,6 +87,10 @@ namespace Formulaar1
                 "Feature Race" =>
                     candidates.Where(x => x.Title.Contains("Feature Race", StringComparison.OrdinalIgnoreCase)),
 
+                "Race" when isF1 =>
+                    candidates.Where(x => x.Title.Contains("Race", StringComparison.OrdinalIgnoreCase) &&
+                                          !x.Title.Contains("Sprint", StringComparison.OrdinalIgnoreCase)),
+
                 "Race" when !isF1 =>
                     candidates.Where(x => x.Title.Contains("Feature Race", StringComparison.OrdinalIgnoreCase)),
 

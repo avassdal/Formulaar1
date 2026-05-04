@@ -91,6 +91,12 @@ B --> D[Sonarr]
 | Formula 2 | 392717 |
 | Formula 3 | 396724 |
 
+## Circuit/Country Detection
+
+At startup, Formulaar1 fetches the current F1 season calendar from [f1api.dev](https://f1api.dev) to automatically populate circuit and city names for the current year. This means new F1 venues are supported without any code changes.
+
+If the API is unavailable, Formulaar1 falls back to a built-in static dictionary which also covers F2/F3 circuits and common alternate names used in release titles (e.g. `COTA`, `Imola`, `UAE`, `British`).
+
 ## Issues
 
 Please raise any issues if you have any problems.

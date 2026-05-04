@@ -123,6 +123,9 @@ namespace Formulaar1
                 }
             }
 
+            var apiCircuits = F1ApiClient.FetchCircuitCountriesAsync(_httpClient).GetAwaiter().GetResult();
+            MergeCircuitCountries(apiCircuits);
+
             _timer.Interval = 60000;
             _timer.Elapsed += _checkEvents;
             _timer.Enabled = true;

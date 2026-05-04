@@ -114,7 +114,7 @@ namespace Formulaar1
             return null;
         }
 
-        internal static readonly Dictionary<string, string> Countries = new()
+        internal static Dictionary<string, string> Countries = new(StringComparer.OrdinalIgnoreCase)
             {
                     { "Bahrain", "Bahrain" },
                     { "Saudi Arabia", "Saudi Arabia" },
@@ -165,6 +165,17 @@ namespace Formulaar1
                     { "AbuDhabi", "Abu Dhabi" },
                     { "UAE", "Abu Dhabi" },
                     { "UnitedArabEmirates", "Abu Dhabi" },
+                    { "United Arab Emirates", "Abu Dhabi" },
         };
+
+        /// <summary>
+        /// Merges circuit data fetched from f1api.dev into the Countries dictionary.
+        /// Static entries (including aliases) take priority and are never overwritten.
+        /// </summary>
+        internal static void MergeCircuitCountries(Dictionary<string, string> apiCountries)
+        {
+            foreach (var kvp in apiCountries)
+                Countries.TryAdd(kvp.Key, kvp.Value);
+        }
     }
 }

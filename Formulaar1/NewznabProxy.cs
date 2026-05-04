@@ -1,5 +1,6 @@
 using APIv3SonarrDotcore.Api;
 using APIv3SonarrDotcore.Model;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using static Formulaar1.Helpers;
@@ -10,11 +11,30 @@ namespace Formulaar1
     /// Proxies Prowlarr's Newznab/Torznab feed to Sonarr, rewriting release titles
     /// so Sonarr can match F1/F2/F3 episodes correctly.
     /// 
-    /// Add to Sonarr as a Newznab indexer pointing at:
-    ///   http://localhost:5000/newznab?apikey=YOUR_PROWLARR_KEY&amp;...
+    /// Add to Sonarr as a Newznab indexer:
+    ///   URL: http://localhost:5000/newznab  API Path: /api
     /// </summary>
     internal static class NewznabProxy
     {
+        private static List<int>? _cachedIndexerIds;
+
+        private static async Task<List<int>> GetIndexerIdsAsync(HttpClient httpClient, string prowlarrBasePath, string prowlarrApiKey)
+        {
+            if (_cachedIndexerIds != null) return _cachedIndexerIds;
+
+            var url = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/indexer?apikey={prowlarrApiKey}";
+            var json = await httpClient.GetStringAsync(url);
+            var ids = new List<int>();
+            using var doc = JsonDocument.Parse(json);
+            foreach (var el in doc.RootElement.EnumerateArray())
+                if (el.TryGetProperty("id", out var idProp))
+                    ids.Add(idProp.GetInt32());
+
+            Console.WriteLine($"[Newznab] Found {ids.Count} Prowlarr indexer(s): {string.Join(", ", ids)}");
+            _cachedIndexerIds = ids;
+            return ids;
+        }
+
         internal static async Task HandleAsync(
             HttpContext context,
             HttpClient httpClient,
@@ -24,66 +44,115 @@ namespace Formulaar1
             EpisodeApi episodeApi)
         {
             var queryString = context.Request.QueryString.Value ?? string.Empty;
+            var tParam = context.Request.Query["t"].ToString().ToLowerInvariant();
 
-            // Prowlarr Newznab-compatible aggregate endpoint: id=0 means all indexers
-            var prowlarrUrl = $"{prowlarrBasePath.TrimEnd('/')}/0/api{queryString}";
-            if (!prowlarrUrl.Contains("apikey="))
-                prowlarrUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
-
-            Console.WriteLine($"[Newznab] → {prowlarrUrl}");
-
-            HttpResponseMessage prowlarrResponse;
+            List<int> ids;
             try
             {
-                prowlarrResponse = await httpClient.GetAsync(prowlarrUrl);
+                ids = await GetIndexerIdsAsync(httpClient, prowlarrBasePath, prowlarrApiKey);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Newznab] Failed to reach Prowlarr: {ex.Message}");
+                Console.WriteLine($"[Newznab] Failed to fetch indexer list: {ex.Message}");
                 context.Response.StatusCode = 502;
-                await context.Response.WriteAsync("Prowlarr unreachable");
+                await context.Response.WriteAsync("Could not retrieve Prowlarr indexer list");
                 return;
             }
 
-            Console.WriteLine($"[Newznab] ← {(int)prowlarrResponse.StatusCode}");
-            var xml = await prowlarrResponse.Content.ReadAsStringAsync();
-
-            // Pass through non-search responses (caps, auth errors, etc.) unchanged
-            var tParam = context.Request.Query["t"].ToString().ToLowerInvariant();
-            if (tParam != "search" && tParam != "tvsearch" && tParam != "")
+            if (ids.Count == 0)
             {
-                context.Response.ContentType = "application/rss+xml; charset=utf-8";
-                context.Response.StatusCode = (int)prowlarrResponse.StatusCode;
-                await context.Response.WriteAsync(xml);
+                context.Response.StatusCode = 503;
+                await context.Response.WriteAsync("No indexers configured in Prowlarr");
                 return;
             }
 
-            // Rewrite titles in the RSS/Newznab XML
+            // For caps and non-search requests: proxy to first indexer only
+            if (tParam == "caps" || (tParam != "search" && tParam != "tvsearch" && tParam != ""))
+            {
+                var capsUrl = $"{prowlarrBasePath.TrimEnd('/')}/{ids[0]}/api{queryString}";
+                if (!capsUrl.Contains("apikey="))
+                    capsUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
+
+                Console.WriteLine($"[Newznab] → {capsUrl}");
+                var capsResp = await httpClient.GetAsync(capsUrl);
+                Console.WriteLine($"[Newznab] ← {(int)capsResp.StatusCode}");
+                context.Response.ContentType = "application/rss+xml; charset=utf-8";
+                context.Response.StatusCode = (int)capsResp.StatusCode;
+                await context.Response.WriteAsync(await capsResp.Content.ReadAsStringAsync());
+                return;
+            }
+
+            // For search: fan-out to all indexers and merge items
+            var allItems = new List<XElement>();
+            XDocument? templateDoc = null;
+
+            await Task.WhenAll(ids.Select(async id =>
+            {
+                var searchUrl = $"{prowlarrBasePath.TrimEnd('/')}/{id}/api{queryString}";
+                if (!searchUrl.Contains("apikey="))
+                    searchUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
+
+                Console.WriteLine($"[Newznab] → {searchUrl}");
+                try
+                {
+                    var resp = await httpClient.GetAsync(searchUrl);
+                    Console.WriteLine($"[Newznab] ← [{id}] {(int)resp.StatusCode}");
+                    var xml = await resp.Content.ReadAsStringAsync();
+                    var doc = XDocument.Parse(xml);
+                    var items = doc.Descendants("item").ToList();
+                    lock (allItems)
+                    {
+                        if (templateDoc == null) templateDoc = doc;
+                        allItems.AddRange(items);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Newznab] Indexer {id} failed: {ex.Message}");
+                }
+            }));
+
+            if (templateDoc == null)
+            {
+                context.Response.StatusCode = 502;
+                await context.Response.WriteAsync("All Prowlarr indexers failed");
+                return;
+            }
+
+            // Replace items in the template document with the merged set
+            var channel = templateDoc.Descendants("channel").FirstOrDefault();
+            if (channel != null)
+            {
+                channel.Elements("item").Remove();
+                foreach (var item in allItems)
+                    channel.Add(item);
+            }
+
+            // Rewrite titles
+            string mergedXml;
             try
             {
-                xml = await RewriteTitlesAsync(xml, seriesApi, episodeApi);
+                mergedXml = await RewriteTitlesAsync(templateDoc, seriesApi, episodeApi);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[Newznab] Title rewrite failed, returning original: {ex.Message}");
+                mergedXml = templateDoc.ToString();
             }
 
             context.Response.ContentType = "application/rss+xml; charset=utf-8";
-            context.Response.StatusCode = (int)prowlarrResponse.StatusCode;
-            await context.Response.WriteAsync(xml);
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsync(mergedXml);
         }
 
         private static async Task<string> RewriteTitlesAsync(
-            string xml, SeriesApi seriesApi, EpisodeApi episodeApi)
+            XDocument doc, SeriesApi seriesApi, EpisodeApi episodeApi)
         {
-            XDocument doc;
-            try { doc = XDocument.Parse(xml); }
-            catch { return xml; }
 
             XNamespace torznab = "http://torznab.com/schemas/2015/feed";
 
             var items = doc.Descendants("item").ToList();
-            if (items.Count == 0) return xml;
+            if (items.Count == 0) return doc.ToString();
 
             foreach (var item in items)
             {

@@ -51,15 +51,16 @@ B --> D[Sonarr]
    }
    ```
 
-   | Setting | Description |
-   | --- | --- |
-   | `TorrentClient` | Currently only `qBittorrent` is supported |
-   | `Hardlinkpath` | Folder where hardlinks are created before Sonarr imports them |
-   | `Sonarr.ApiKey` | Found in Sonarr → Settings → General |
-   | `Sonarr.BasePath` | Full URL to your Sonarr instance |
-   | `qBittorrentClient.BasePath` | Full URL to your qBittorrent Web UI |
-   | `bugsnag.apiKey` | Optional — your own Bugsnag project API key for error reporting |
-   | `bugsnag.enabled` | Set to `true` if you supply a Bugsnag API key |
+   | Setting | Environment Variable | Description |
+   | --- | --- | --- |
+   | `TorrentClient` | `FORMULAAR1__TorrentClient` | Currently only `qBittorrent` is supported |
+   | `EnableHardlinking` | `FORMULAAR1__EnableHardlinking` | `false` (default) — Sonarr handles file management. Set to `true` only if Sonarr cannot reach the qBittorrent download path directly |
+   | `Hardlinkpath` | `FORMULAAR1__Hardlinkpath` | Only required when `EnableHardlinking` is `true`. Folder where Formulaar1 creates hardlinks before triggering a Sonarr import |
+   | `Sonarr.ApiKey` | `FORMULAAR1__Sonarr__ApiKey` | Found in Sonarr → Settings → General |
+   | `Sonarr.BasePath` | `FORMULAAR1__Sonarr__BasePath` | Full URL to your Sonarr instance |
+   | `qBittorrentClient.BasePath` | `FORMULAAR1__qBittorrentClient__BasePath` | Full URL to your qBittorrent Web UI |
+   | `bugsnag.apiKey` | `FORMULAAR1__bugsnag__apiKey` | Optional — your own Bugsnag project API key for error reporting |
+   | `bugsnag.enabled` | `FORMULAAR1__bugsnag__enabled` | Set to `true` if you supply a Bugsnag API key |
 
 4. Start Formulaar1:
 

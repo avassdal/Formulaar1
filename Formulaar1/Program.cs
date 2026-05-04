@@ -34,6 +34,7 @@ namespace Formulaar1
 
         private static bool running = false;
         private static bool bugsnagEnabled = true;
+        private static bool enableHardlinking = false;
 
         public static void Main(string[] args)
         {
@@ -50,22 +51,14 @@ namespace Formulaar1
             bugsnagEnabled = config.GetValue<bool>("APICredentials:bugsnag:enabled");
             bugsnagApiKey = config.GetValue<string>("APICredentials:bugsnag:apiKey");
             Hardlinkpath = config.GetValue<string>("Hardlinkpath");
+            enableHardlinking = config.GetValue<bool>("EnableHardlinking");
 
             if (bugsnagEnabled)
             {
                 _bugsnag = new Bugsnag.Client(bugsnagApiKey);
             }
 
-            //Setup Hardlinkpath
-            if (string.IsNullOrEmpty(Hardlinkpath))
-            {
-                Console.WriteLine("#####################################################################################");
-                Console.WriteLine("##    !!Please check Hardlinkpath is configured correctly in appsettings.json!!    ##");
-                Console.WriteLine("#####################################################################################");
-                Console.Read();
-            }
-
-            if (!Directory.Exists(Hardlinkpath))
+            if (enableHardlinking && !Directory.Exists(Hardlinkpath))
             {
                 Directory.CreateDirectory(Hardlinkpath!);
             }
@@ -126,10 +119,18 @@ namespace Formulaar1
             var apiCircuits = F1ApiClient.FetchCircuitCountriesAsync(_httpClient).GetAwaiter().GetResult();
             MergeCircuitCountries(apiCircuits);
 
-            _timer.Interval = 60000;
-            _timer.Elapsed += _checkEvents;
-            _timer.Enabled = true;
-            _timer.AutoReset = true;
+            if (enableHardlinking)
+            {
+                _timer.Interval = 60000;
+                _timer.Elapsed += _checkEvents;
+                _timer.Enabled = true;
+                _timer.AutoReset = true;
+                Console.WriteLine("[Hardlinking] Enabled — monitoring qBittorrent for completed downloads.");
+            }
+            else
+            {
+                Console.WriteLine("[Hardlinking] Disabled — Sonarr will handle file management.");
+            }
 
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
             WebApplication app = builder.Build();
@@ -408,12 +409,19 @@ namespace Formulaar1
                                         }
                                         else
                                         {
-                                            var targetDirectory = hardpathcomplete;
-                                            Directory.CreateDirectory(targetDirectory);
                                             var file = Path.Combine(torrent.SavePath!, torrent.Name!);
-
                                             var ofInfo = new FileInfo(file);
-                                            var nfInfo = new FileInfo($"{targetDirectory}/{sonarrItem.Title} - {ofInfo.Name}");
+                                            var nameLower = ofInfo.Name.ToLower();
+
+                                            FileInfo nfInfo;
+                                            if (nameLower.Contains("buildup"))
+                                                nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part1{ofInfo.Extension}");
+                                            else if (nameLower.Contains("session"))
+                                                nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part2{ofInfo.Extension}");
+                                            else if (nameLower.Contains("analysis"))
+                                                nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title} - Part3{ofInfo.Extension}");
+                                            else
+                                                nfInfo = new FileInfo($"{hardpathcomplete}/{sonarrItem.Title}{ofInfo.Extension}");
 
                                             if (!File.Exists(nfInfo.ToString()))
                                             {
@@ -425,7 +433,7 @@ namespace Formulaar1
                                             var commandResource = new CommandResource
                                             {
                                                 Name = "DownloadedEpisodesScan",
-                                                Path = targetDirectory,
+                                                Path = hardpathcomplete,
                                                 ImportMode = CommandResource.ImportModeEnum.Auto
                                             };
 

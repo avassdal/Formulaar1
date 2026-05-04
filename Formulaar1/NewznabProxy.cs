@@ -11,7 +11,7 @@ namespace Formulaar1
     /// Proxies Prowlarr's Newznab/Torznab feed to Sonarr, rewriting release titles
     /// so Sonarr can match F1/F2/F3 episodes correctly.
     /// 
-    /// Add to Sonarr as a Newznab indexer:
+    /// Add to Sonarr as a Torznab indexer:
     ///   URL: http://localhost:5000/newznab  API Path: /api
     /// </summary>
     internal static class NewznabProxy

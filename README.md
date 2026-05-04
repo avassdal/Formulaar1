@@ -92,9 +92,9 @@ B --> D[Sonarr]
 | Formula 2 | 392717 |
 | Formula 3 | 396724 |
 
-## Prowlarr / Newznab Proxy (optional)
+## Prowlarr / Torznab Proxy (optional)
 
-Formulaar1 can also act as a Newznab proxy between Sonarr and Prowlarr. This allows Sonarr's own search, RSS sync, and manual search to correctly match F1/F2/F3 episodes — not just releases pushed by AutoBrr.
+Formulaar1 can also act as a Torznab proxy between Sonarr and Prowlarr. This allows Sonarr's own search, RSS sync, and manual search to correctly match F1/F2/F3 episodes — not just releases pushed by AutoBrr.
 
 ### Setup
 
@@ -107,7 +107,7 @@ Formulaar1 can also act as a Newznab proxy between Sonarr and Prowlarr. This all
    }
    ```
 
-2. In Sonarr → Settings → Indexers, add a new **Newznab** indexer:
+2. In Sonarr → Settings → Indexers, add a new **Torznab** indexer:
    - **URL:** `http://127.0.0.1:5000/newznab`
    - **API Path:** `/api`
    - **API Key:** your Prowlarr API key (passed through transparently)

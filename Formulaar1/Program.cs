@@ -121,11 +121,10 @@ namespace Formulaar1
 
             if (enableHardlinking)
             {
-                _timer.Interval = 60000;
+                _timer.Interval = 10000;
                 _timer.Elapsed += _checkEvents;
-                _timer.Enabled = true;
-                _timer.AutoReset = true;
-                Console.WriteLine("[Hardlinking] Enabled — monitoring qBittorrent for completed downloads.");
+                _timer.AutoReset = false;
+                Console.WriteLine("[Hardlinking] Enabled — timer will start when a release is queued.");
             }
             else
             {
@@ -263,6 +262,11 @@ namespace Formulaar1
                                         if (r.Rejected == false)
                                         {
                                             _hashes.Add(r);
+                                            if (enableHardlinking && !_timer.Enabled)
+                                            {
+                                                _timer.Start();
+                                                Console.WriteLine("[Hardlinking] Release queued — starting download monitor.");
+                                            }
                                         }
                                     }
                                 }
@@ -307,6 +311,7 @@ namespace Formulaar1
         {
             if (!running)
             {
+                if (_hashes.IsEmpty) { running = false; return; }
                 running = true;
                 ////
                 ///Used to monitor qBit and then Hardlink once the download is complete 
@@ -443,6 +448,7 @@ namespace Formulaar1
                                         }
 
                                         _hashes = new ConcurrentBag<ReleaseResource>(_hashes.Except(new[] { r }));
+                                        if (_hashes.IsEmpty) Console.WriteLine("[Hardlinking] Queue empty — monitor idle.");
                                     }
                                 }
                             }
@@ -462,6 +468,8 @@ namespace Formulaar1
                     }
                 }
                 running = false;
+                if (!_hashes.IsEmpty)
+                    _timer.Start();
             }
         }
 

@@ -69,7 +69,7 @@ namespace Formulaar1
             // For caps and non-search requests: proxy to first indexer only
             if (tParam == "caps" || (tParam != "search" && tParam != "tvsearch" && tParam != ""))
             {
-                var capsUrl = $"{prowlarrBasePath.TrimEnd('/')}/{ids[0]}/api{queryString}";
+                var capsUrl = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/indexer/{ids[0]}/newznab{queryString}";
                 if (!capsUrl.Contains("apikey="))
                     capsUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
 
@@ -88,7 +88,7 @@ namespace Formulaar1
 
             await Task.WhenAll(ids.Select(async id =>
             {
-                var searchUrl = $"{prowlarrBasePath.TrimEnd('/')}/{id}/api{queryString}";
+                var searchUrl = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/indexer/{id}/newznab{queryString}";
                 if (!searchUrl.Contains("apikey="))
                     searchUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
 

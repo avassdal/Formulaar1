@@ -30,7 +30,7 @@ namespace Formulaar1
 
         private static System.Timers.Timer _timer = new System.Timers.Timer();
 
-        private static string? TorrentClient, BaseSonarPath, BaseqBitPath, SonarApiKey, qBitUsername, qBitPassword, bugsnagApiKey, Hardlinkpath;
+        private static string? TorrentClient, BaseSonarPath, BaseqBitPath, SonarApiKey, qBitUsername, qBitPassword, bugsnagApiKey, Hardlinkpath, ProwlarrBasePath, ProwlarrApiKey;
 
         private static bool running = false;
         private static bool bugsnagEnabled = true;
@@ -52,6 +52,8 @@ namespace Formulaar1
             bugsnagApiKey = config.GetValue<string>("APICredentials:bugsnag:apiKey");
             Hardlinkpath = config.GetValue<string>("Hardlinkpath");
             enableHardlinking = config.GetValue<bool>("EnableHardlinking");
+            ProwlarrBasePath = config.GetValue<string>("APICredentials:Prowlarr:BasePath");
+            ProwlarrApiKey = config.GetValue<string>("APICredentials:Prowlarr:ApiKey");
 
             if (bugsnagEnabled)
             {
@@ -131,8 +133,25 @@ namespace Formulaar1
                 Console.WriteLine("[Hardlinking] Disabled — Sonarr will handle file management.");
             }
 
+            bool prowlarrEnabled = !string.IsNullOrWhiteSpace(ProwlarrBasePath) && !string.IsNullOrWhiteSpace(ProwlarrApiKey);
+            if (prowlarrEnabled)
+                Console.WriteLine($"[Newznab] Prowlarr proxy enabled → {ProwlarrBasePath}");
+            else
+                Console.WriteLine("[Newznab] Prowlarr not configured — proxy disabled.");
+
             WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
             WebApplication app = builder.Build();
+
+            app.MapGet("/newznab", async (HttpContext context) =>
+            {
+                if (!prowlarrEnabled)
+                {
+                    context.Response.StatusCode = 503;
+                    await context.Response.WriteAsync("Prowlarr not configured. Set APICredentials:Prowlarr:BasePath and ApiKey.");
+                    return;
+                }
+                await NewznabProxy.HandleAsync(context, _httpClient, ProwlarrBasePath!, ProwlarrApiKey!, _seriesApi!, _episodeApi!);
+            });
 
             _ = app.Use(async (context, next) =>
             {

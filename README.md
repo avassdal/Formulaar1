@@ -92,6 +92,29 @@ B --> D[Sonarr]
 | Formula 2 | 392717 |
 | Formula 3 | 396724 |
 
+## Prowlarr / Newznab Proxy (optional)
+
+Formulaar1 can also act as a Newznab proxy between Sonarr and Prowlarr. This allows Sonarr's own search, RSS sync, and manual search to correctly match F1/F2/F3 episodes — not just releases pushed by AutoBrr.
+
+### Setup
+
+1. Add your Prowlarr credentials to `appsettings.json`:
+
+   ```json
+   "Prowlarr": {
+     "BasePath": "http://127.0.0.1:9696",
+     "ApiKey": "your-prowlarr-api-key"
+   }
+   ```
+
+2. In Sonarr → Settings → Indexers, add a new **Newznab** indexer:
+   - **URL:** `http://127.0.0.1:5000/newznab`
+   - **API Key:** your Prowlarr API key (passed through transparently)
+
+3. Remove or disable the existing Prowlarr indexer in Sonarr (to avoid duplicate grabs).
+
+Formulaar1 will forward all search queries to Prowlarr and rewrite the titles in the results before returning them to Sonarr. The AutoBrr push flow continues to work alongside this.
+
 ## Circuit/Country Detection
 
 At startup, Formulaar1 fetches the current F1 season calendar from [f1api.dev](https://f1api.dev) to automatically populate circuit and city names for the current year. This means new F1 venues are supported without any code changes.

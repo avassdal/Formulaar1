@@ -226,18 +226,49 @@ namespace Formulaar1
             var episodesJson = await resp2.Content.ReadAsStringAsync();
             using var episodesDoc = System.Text.Json.JsonDocument.Parse(episodesJson);
 
-            System.Text.Json.JsonElement? matched = null;
-            foreach (var ep in episodesDoc.RootElement.EnumerateArray())
-            {
-                if (!ep.TryGetProperty("seasonNumber", out var snProp) || snProp.GetInt32() != seasonId) continue;
-                if (!ep.TryGetProperty("title", out var titleProp)) continue;
-                var epTitle = titleProp.GetString() ?? "";
-                if (!epTitle.Contains(country, StringComparison.OrdinalIgnoreCase)) continue;
+            // Collect candidates: correct season + country in title
+            var candidates = episodesDoc.RootElement.EnumerateArray()
+                .Where(ep =>
+                    ep.TryGetProperty("seasonNumber", out var snProp) && snProp.GetInt32() == seasonId &&
+                    ep.TryGetProperty("title", out var titleProp) &&
+                    (titleProp.GetString() ?? "").Contains(country, StringComparison.OrdinalIgnoreCase) &&
+                    ep.TryGetProperty("episodeNumber", out _))
+                .ToList();
 
-                if (!ep.TryGetProperty("episodeNumber", out _)) continue;
-                matched = ep;
-                break;
-            }
+            bool isF1 = seriesInfo.Title.Equals("Formula 1", StringComparison.OrdinalIgnoreCase);
+
+            // Apply show-type filter matching GetEpisodesByShowType logic
+            Func<string, bool> epTitleFilter = showType switch
+            {
+                "Sprint Shootout" when isF1 => t =>
+                    t.Contains("Shootout", StringComparison.OrdinalIgnoreCase) ||
+                    t.Contains("Sprint Qualifying", StringComparison.OrdinalIgnoreCase),
+
+                "Sprint Race" when isF1 => t =>
+                    t.Contains("Sprint", StringComparison.OrdinalIgnoreCase) &&
+                    !t.Contains("Shootout", StringComparison.OrdinalIgnoreCase),
+
+                "Sprint" when isF1 => t =>
+                    t.Contains("Sprint", StringComparison.OrdinalIgnoreCase) &&
+                    !t.Contains("Shootout", StringComparison.OrdinalIgnoreCase),
+
+                "Sprint Race" => t => t.Contains("Sprint Race", StringComparison.OrdinalIgnoreCase),
+                "Sprint"      => t => t.Contains("Sprint Race", StringComparison.OrdinalIgnoreCase),
+                "Feature Race"=> t => t.Contains("Feature Race", StringComparison.OrdinalIgnoreCase),
+
+                "Race" when !isF1 => t => t.Contains("Feature Race", StringComparison.OrdinalIgnoreCase),
+
+                _ => t => t.Contains(showType, StringComparison.OrdinalIgnoreCase),
+            };
+
+            System.Text.Json.JsonElement? matched = candidates
+                .Where(ep =>
+                {
+                    var t = ep.GetProperty("title").GetString() ?? "";
+                    return epTitleFilter(t);
+                })
+                .Cast<System.Text.Json.JsonElement?>()
+                .FirstOrDefault();
 
             if (matched == null) return null;
 

@@ -366,3 +366,5 @@ FodyWeavers.xsd
 .prettierrc
 .prettierrc.*
 .prettierignore
+package.json
+package-lock.json

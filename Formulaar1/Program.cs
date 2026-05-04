@@ -12,7 +12,7 @@ namespace Formulaar1
 {
     public class Program
     {
-        private static Bugsnag.Client _bugsnag;
+        private static Bugsnag.Client? _bugsnag;
 
         private static SeriesApi? _seriesApi;
         private static EpisodeApi? _episodeApi;
@@ -67,7 +67,7 @@ namespace Formulaar1
 
             if (!Directory.Exists(Hardlinkpath))
             {
-                Directory.CreateDirectory(Hardlinkpath);
+                Directory.CreateDirectory(Hardlinkpath!);
             }
 
             //Configuring Sonarr API
@@ -101,7 +101,7 @@ namespace Formulaar1
                 if (TorrentClient == "qBittorrent" && qBitUsername != null && qBitPassword != null)
                 {
                     Console.WriteLine($"Detected qBittorrent Client, attempting to login");
-                    _qBittorrentClient = new QBittorrentClient(new Uri(BaseqBitPath));
+                    _qBittorrentClient = new QBittorrentClient(new Uri(BaseqBitPath!));
                     _qBittorrentClient.LoginAsync(qBitUsername, qBitPassword).GetAwaiter().GetResult();
                     var result = _qBittorrentClient.GetQBittorrentVersionAsync().GetAwaiter().GetResult();
                     Console.WriteLine($"Logged in to {result}");
@@ -119,7 +119,7 @@ namespace Formulaar1
                 Console.WriteLine(ex.ToString());
                 if (bugsnagEnabled)
                 {
-                    _bugsnag.Notify(ex);
+                    _bugsnag?.Notify(ex);
                 }
             }
 
@@ -202,9 +202,9 @@ namespace Formulaar1
                                     }
                                     else if (Country != null)
                                     {
-                                        var Series = await _seriesApi.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
+                                        var Series = await _seriesApi!.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
                                         //Get all Episodes
-                                        var tmp = await _episodeApi.ApiV3EpisodeGetAsync(Series[0].Id);
+                                        var tmp = await _episodeApi!.ApiV3EpisodeGetAsync(Series[0].Id);
                                         //Find Correct Year
                                         var tmp1 = tmp.Where(x => x.SeasonNumber == SeasonID);
                                         //Find Correct Country
@@ -244,13 +244,13 @@ namespace Formulaar1
                                 Console.WriteLine(ex.ToString());
                                 if (bugsnagEnabled)
                                 {
-                                    _bugsnag.Notify(ex);
+                                    _bugsnag?.Notify(ex);
                                 }
                             }
 
                             try
                             {
-                                var response = await _releasePushApi.ApiV3ReleasePushPostAsync(ReleasePost);
+                                var response = await _releasePushApi!.ApiV3ReleasePushPostAsync(ReleasePost);
 
                                 if (response != null)
                                 {
@@ -265,7 +265,7 @@ namespace Formulaar1
 
                                 var result = response;
 
-                                Console.WriteLine($"Pushing to Sonarr: {ReleasePost.Title}");
+                                Console.WriteLine($"Pushing to Sonarr: {ReleasePost?.Title}");
 
                                 await context.Response.WriteAsJsonAsync(result);
                             }
@@ -274,7 +274,7 @@ namespace Formulaar1
                                 Console.WriteLine(ex.ToString());
                                 if (bugsnagEnabled)
                                 {
-                                    _bugsnag.Notify(ex);
+                                    _bugsnag?.Notify(ex);
                                 }
                             }
                         }
@@ -314,7 +314,7 @@ namespace Formulaar1
                 {
                     if (r.InfoHash == null)
                     {
-                        var history = await _historyApi.ApiV3HistoryGetAsync(null, true);
+                        var history = await _historyApi!.ApiV3HistoryGetAsync(null, true);
 
                         foreach (var h in history.Records.Where(x => x.SourceTitle == r.Title && x.Date < DateTime.Now.AddMinutes(-1)))
                         {
@@ -332,7 +332,7 @@ namespace Formulaar1
                         try
                         {
                             var query = new TorrentListQuery() { Hashes = new string[] { r.InfoHash } };
-                            var result = await _qBittorrentClient.GetTorrentListAsync(query);
+                            var result = await _qBittorrentClient!.GetTorrentListAsync(query);
 
                             if (result.Count > 0)
                             {
@@ -342,14 +342,14 @@ namespace Formulaar1
                                     var sonarrItem = _hashes.Where(x => x.InfoHash == torrent.Hash).FirstOrDefault();
                                     if (sonarrItem != null)
                                     {
-                                        FileAttributes attr = File.GetAttributes(Path.Combine(torrent.SavePath, torrent.Name));
-                                        var hardpathcomplete = Path.Combine(Hardlinkpath, sonarrItem.Title);
+                                        FileAttributes attr = File.GetAttributes(Path.Combine(torrent.SavePath!, torrent.Name!));
+                                        var hardpathcomplete = Path.Combine(Hardlinkpath!, sonarrItem.Title!);
 
                                         Directory.CreateDirectory(hardpathcomplete);
 
                                         if ((attr & FileAttributes.Directory) == FileAttributes.Directory)
                                         {
-                                            var files = Directory.GetFiles(Path.Combine(torrent.SavePath, torrent.Name));
+                                            var files = Directory.GetFiles(Path.Combine(torrent.SavePath!, torrent.Name!));
 
                                             //Attempt to Hardlink files.
                                             foreach (var file in files)
@@ -399,7 +399,7 @@ namespace Formulaar1
                                                 ImportMode = CommandResource.ImportModeEnum.Auto
                                             };
 
-                                            await _commandApi.ApiV3CommandPostAsync(commandResource);
+                                            await _commandApi!.ApiV3CommandPostAsync(commandResource);
 
                                             Console.WriteLine($"Sending Command:{commandResource.Name} Mode:{commandResource.ImportMode} Torrent:{torrent.Name} for path \"{commandResource.Path}\"");
                                         }
@@ -407,7 +407,7 @@ namespace Formulaar1
                                         {
                                             var targetDirectory = hardpathcomplete;
                                             Directory.CreateDirectory(targetDirectory);
-                                            var file = Path.Combine(torrent.SavePath, torrent.Name);
+                                            var file = Path.Combine(torrent.SavePath!, torrent.Name!);
 
                                             var ofInfo = new FileInfo(file);
                                             var nfInfo = new FileInfo($"{targetDirectory}/{sonarrItem.Title} - {ofInfo.Name}");
@@ -426,7 +426,7 @@ namespace Formulaar1
                                                 ImportMode = CommandResource.ImportModeEnum.Auto
                                             };
 
-                                            await _commandApi.ApiV3CommandPostAsync(commandResource);
+                                            await _commandApi!.ApiV3CommandPostAsync(commandResource);
 
                                             Console.WriteLine($"Sending Command:{commandResource.Name} Mode:{commandResource.ImportMode} Torrent:{torrent.Name} for path \"{commandResource.Path}\"");
                                         }
@@ -440,12 +440,12 @@ namespace Formulaar1
                         {
                             Console.WriteLine("Attempting Simple Reauth to torrent Client");
 
-                            await _qBittorrentClient.LoginAsync(qBitUsername, qBitPassword);
+                            await _qBittorrentClient!.LoginAsync(qBitUsername, qBitPassword);
 
                             Console.WriteLine(ex.ToString());
                             if (bugsnagEnabled)
                             {
-                                _bugsnag.Notify(ex);
+                                _bugsnag?.Notify(ex);
                             }
                         }
                     }

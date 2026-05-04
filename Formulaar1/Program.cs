@@ -37,9 +37,20 @@ namespace Formulaar1
 
         public static void Main(string[] args)
         {
-            using IHost host = Host.CreateDefaultBuilder(args).Build();
+            using IHost host = Host.CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration((_, cfg) => cfg.AddEnvironmentVariables(prefix: "FORMULAAR1__"))
+                .Build();
 
             IConfiguration config = host.Services.GetRequiredService<IConfiguration>();
+
+            if (Setup.IsRequired(config))
+            {
+                Setup.RunWizard();
+                config = new ConfigurationBuilder()
+                    .AddJsonFile("appsettings.json", optional: false)
+                    .AddEnvironmentVariables(prefix: "FORMULAAR1__")
+                    .Build();
+            }
 
             SonarApiKey = config.GetValue<string>("APICredentials:Sonarr:ApiKey");
             BaseSonarPath = config.GetValue<string>("APICredentials:Sonarr:BasePath");
@@ -56,13 +67,35 @@ namespace Formulaar1
                 _bugsnag = new Bugsnag.Client(bugsnagApiKey);
             }
 
-            //Setup Hardlinkpath
-            if (string.IsNullOrEmpty(Hardlinkpath))
+            // Validate required configuration
+            var configErrors = new List<string>();
+            if (string.IsNullOrWhiteSpace(SonarApiKey))
+                configErrors.Add("APICredentials:Sonarr:ApiKey is required");
+            if (string.IsNullOrWhiteSpace(BaseSonarPath))
+                configErrors.Add("APICredentials:Sonarr:BasePath is required");
+            if (string.IsNullOrWhiteSpace(Hardlinkpath) || Hardlinkpath == "/full/path/to/hardlink/folder")
+                configErrors.Add("Hardlinkpath must be set to a real path");
+            if (TorrentClient == "qBittorrent")
             {
-                Console.WriteLine("#####################################################################################");
-                Console.WriteLine("##    !!Please check Hardlinkpath is configured correctly in appsettings.json!!    ##");
-                Console.WriteLine("#####################################################################################");
-                Console.Read();
+                if (string.IsNullOrWhiteSpace(BaseqBitPath))
+                    configErrors.Add("APICredentials:qBittorrentClient:BasePath is required");
+                if (string.IsNullOrWhiteSpace(qBitUsername))
+                    configErrors.Add("APICredentials:qBittorrentClient:Username is required");
+                if (string.IsNullOrWhiteSpace(qBitPassword))
+                    configErrors.Add("APICredentials:qBittorrentClient:Password is required");
+            }
+
+            if (configErrors.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("[Formulaar1] Configuration errors — please fix appsettings.json:");
+                for (int i = 0; i < configErrors.Count; i++)
+                    Console.WriteLine($"  {i + 1}. {configErrors[i]}");
+                Console.WriteLine();
+                Console.WriteLine("Tip: copy appsettings.example.json to appsettings.json and fill in your values.");
+                Console.WriteLine("     Or set FORMULAAR1__ environment variables (see README).");
+                Console.WriteLine();
+                Environment.Exit(1);
             }
 
             if (!Directory.Exists(Hardlinkpath))
@@ -71,29 +104,18 @@ namespace Formulaar1
             }
 
             //Configuring Sonarr API
-            if (BaseSonarPath != null && SonarApiKey != null)
-            {
+            Configuration.Default.BasePath = BaseSonarPath;
+            Configuration.Default.ApiKey.Add("X-Api-Key", SonarApiKey!);
+            Configuration.Default.UserAgent = "Formulaar1";
 
-                Configuration.Default.BasePath = BaseSonarPath;
-                Configuration.Default.ApiKey.Add("X-Api-Key", SonarApiKey);
-                Configuration.Default.UserAgent = "Formulaar1";
-
-                _seriesApi = new SeriesApi();
-                //_seasonPassApi = new SeasonPassApi();
-                _episodeApi = new EpisodeApi();
-                _releasePushApi = new ReleasePushApi();
-                //_queueStatusApi = new QueueStatusApi();
-                //_queueDetailsApi = new QueueDetailsApi();
-                _historyApi = new HistoryApi();
-                _commandApi = new CommandApi();
-            }
-            else
-            {
-                Console.WriteLine("#####################################################################################");
-                Console.WriteLine("## !!Please check the Sonarr section is configured correctly in appsettings.json!! ##");
-                Console.WriteLine("#####################################################################################");
-
-            }
+            _seriesApi = new SeriesApi();
+            //_seasonPassApi = new SeasonPassApi();
+            _episodeApi = new EpisodeApi();
+            _releasePushApi = new ReleasePushApi();
+            //_queueStatusApi = new QueueStatusApi();
+            //_queueDetailsApi = new QueueDetailsApi();
+            _historyApi = new HistoryApi();
+            _commandApi = new CommandApi();
 
             //Attempt to confiugure download client API's.
             try

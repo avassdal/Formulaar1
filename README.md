@@ -27,29 +27,13 @@ B --> D[Sonarr]
 
 2. Extract into a folder.
 
-3. Edit `appsettings.json` with your settings:
+3. Start Formulaar1 — if no valid configuration is found, a setup wizard runs automatically and writes `appsettings.json` for you:
 
-   ```json
-   {
-     "TorrentClient": "qBittorrent",
-     "Hardlinkpath": "/full/path/to/hardlink/folder",
-     "APICredentials": {
-       "Sonarr": {
-         "ApiKey": "",
-         "BasePath": "http://127.0.0.1:8989"
-       },
-       "qBittorrentClient": {
-         "Username": "",
-         "Password": "",
-         "BasePath": "http://127.0.0.1:10169"
-       },
-       "bugsnag": {
-         "apiKey": "",
-         "enabled": false
-       }
-     }
-   }
+   ```sh
+   ./Formulaar1
    ```
+
+   Alternatively, copy `appsettings.example.json` to `appsettings.json` and fill in your values manually:
 
    | Setting | Description |
    | --- | --- |
@@ -82,6 +66,21 @@ B --> D[Sonarr]
    Clicking **Test** should return a green OK.
 
 6. Set up an AutoBrr filter pointing to this new client. That's it!
+
+## Environment Variables
+
+Every setting in `appsettings.json` can be overridden via environment variables using the `FORMULAAR1__` prefix and double-underscore (`__`) as a section separator. This is useful for Docker or CI environments where you don't want to edit files.
+
+| Environment Variable | Equivalent Setting |
+| --- | --- |
+| `FORMULAAR1__Hardlinkpath` | `Hardlinkpath` |
+| `FORMULAAR1__APICredentials__Sonarr__ApiKey` | `APICredentials:Sonarr:ApiKey` |
+| `FORMULAAR1__APICredentials__Sonarr__BasePath` | `APICredentials:Sonarr:BasePath` |
+| `FORMULAAR1__APICredentials__qBittorrentClient__Username` | `APICredentials:qBittorrentClient:Username` |
+| `FORMULAAR1__APICredentials__qBittorrentClient__Password` | `APICredentials:qBittorrentClient:Password` |
+| `FORMULAAR1__APICredentials__qBittorrentClient__BasePath` | `APICredentials:qBittorrentClient:BasePath` |
+| `FORMULAAR1__APICredentials__bugsnag__apiKey` | `APICredentials:bugsnag:apiKey` |
+| `FORMULAAR1__APICredentials__bugsnag__enabled` | `APICredentials:bugsnag:enabled` |
 
 ## Supported Series
 

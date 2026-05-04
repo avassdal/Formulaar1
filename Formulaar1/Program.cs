@@ -133,153 +133,153 @@ namespace Formulaar1
 
             _ = app.Use(async (context, next) =>
             {
-            string pathAndQuery = context.Request.GetEncodedPathAndQuery();
+                string pathAndQuery = context.Request.GetEncodedPathAndQuery();
 
-            const string apiEndpoint = "/api";
-            if (!pathAndQuery.StartsWith(apiEndpoint))
-            {
-                //continues through the rest of the pipeline
-                await next();
-            }
-            else
-            {
-                if (!_httpClient.DefaultRequestHeaders.Contains("X-Api-Key"))
+                const string apiEndpoint = "/api";
+                if (!pathAndQuery.StartsWith(apiEndpoint))
                 {
-                    _httpClient.DefaultRequestHeaders.Accept.Clear();
-                    _httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-
-                    _httpClient.DefaultRequestHeaders.Add("User-Agent", "Formulaar1");
-                    _httpClient.DefaultRequestHeaders.Add("X-Api-Key", SonarApiKey);
+                    //continues through the rest of the pipeline
+                    await next();
                 }
-
-                if (context.Request.Method == "GET")
+                else
                 {
-                    HttpResponseMessage response = await _httpClient.GetAsync(BaseSonarPath + "/api" + pathAndQuery.Replace(apiEndpoint, ""));
-
-                    string result = await response.Content.ReadAsStringAsync();
-
-                    context.Response.StatusCode = (int)response.StatusCode;
-                    await context.Response.WriteAsync(result);
-                }
-                else if (context.Request.Method == "POST")
-                {
-
-                    var tmpReleasePost = await context.Request.ReadFromJsonAsync<POSTReleasePush>();
-
-                    if (tmpReleasePost != null && tmpReleasePost.Protocol != null)
+                    if (!_httpClient.DefaultRequestHeaders.Contains("X-Api-Key"))
                     {
-                        Console.WriteLine($"Processing {tmpReleasePost.SeriesTitle}");
+                        _httpClient.DefaultRequestHeaders.Accept.Clear();
+                        _httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-                        _ = Enum.TryParse(char.ToUpper(tmpReleasePost.Protocol[0]) + tmpReleasePost.Protocol.Substring(1), out DownloadProtocol Protocol);
+                        _httpClient.DefaultRequestHeaders.Add("User-Agent", "Formulaar1");
+                        _httpClient.DefaultRequestHeaders.Add("X-Api-Key", SonarApiKey);
+                    }
 
-                        var ReleasePost = new ReleaseResource
+                    if (context.Request.Method == "GET")
+                    {
+                        HttpResponseMessage response = await _httpClient.GetAsync(BaseSonarPath + "/api" + pathAndQuery.Replace(apiEndpoint, ""));
+
+                        string result = await response.Content.ReadAsStringAsync();
+
+                        context.Response.StatusCode = (int)response.StatusCode;
+                        await context.Response.WriteAsync(result);
+                    }
+                    else if (context.Request.Method == "POST")
+                    {
+
+                        var tmpReleasePost = await context.Request.ReadFromJsonAsync<POSTReleasePush>();
+
+                        if (tmpReleasePost != null && tmpReleasePost.Protocol != null)
                         {
-                            Title = tmpReleasePost.Title,
-                            DownloadUrl = tmpReleasePost.DownloadUrl,
-                            Protocol = Protocol,
-                            Indexer = tmpReleasePost.Indexer,
-                            PublishDate = tmpReleasePost.PublishDate,
-                            Size = tmpReleasePost.Size,
-                            SeriesTitle = tmpReleasePost.SeriesTitle,
-                        };
+                            Console.WriteLine($"Processing {tmpReleasePost.SeriesTitle}");
 
-                        try
-                        {
-                            var normalisedTitle = ReleasePost.Title?.Replace(".", " ").Replace("-", " ") ?? string.Empty;
-                            var seriesInfo = DetectSeries(normalisedTitle);
+                            _ = Enum.TryParse(char.ToUpper(tmpReleasePost.Protocol[0]) + tmpReleasePost.Protocol.Substring(1), out DownloadProtocol Protocol);
 
-                            if (ReleasePost != null && ReleasePost.Title != null && seriesInfo != null)
+                            var ReleasePost = new ReleaseResource
                             {
-                                _ = int.TryParse(Regex.Match(normalisedTitle, @"(?:(?:18|19|20|21)[0-9]{2})").ToString(), out int SeasonID);
-                                var Country = Countries.FirstOrDefault(x => normalisedTitle.Contains(x.Key, StringComparison.OrdinalIgnoreCase)).Value;
+                                Title = tmpReleasePost.Title,
+                                DownloadUrl = tmpReleasePost.DownloadUrl,
+                                Protocol = Protocol,
+                                Indexer = tmpReleasePost.Indexer,
+                                PublishDate = tmpReleasePost.PublishDate,
+                                Size = tmpReleasePost.Size,
+                                SeriesTitle = tmpReleasePost.SeriesTitle,
+                            };
 
-                                var ShowType = NormaliseShowType(normalisedTitle);
-                                Console.WriteLine($"ShowType: {ShowType}");
+                            try
+                            {
+                                var normalisedTitle = ReleasePost.Title?.Replace(".", " ").Replace("-", " ") ?? string.Empty;
+                                var seriesInfo = DetectSeries(normalisedTitle);
 
-                                if (ShowType == null)
+                                if (ReleasePost != null && ReleasePost.Title != null && seriesInfo != null)
                                 {
-                                    Console.WriteLine($"Dropping unrecognised/unwanted session type: {ReleasePost.Title}");
-                                }
-                                else if (Country != null)
-                                {
-                                    var Series = await _seriesApi.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
-                                    //Get all Episodes
-                                    var tmp = await _episodeApi.ApiV3EpisodeGetAsync(Series[0].Id);
-                                    //Find Correct Year
-                                    var tmp1 = tmp.Where(x => x.SeasonNumber == SeasonID);
-                                    //Find Correct Country
-                                    var tmp2 = tmp1.Where(x => x.Title.Contains(Country, StringComparison.OrdinalIgnoreCase));
-                                    //Find correct session episode
-                                    IEnumerable<EpisodeResource> tmp3 = GetEpisodesByShowType(tmp2, seriesInfo.Title, ShowType);
+                                    _ = int.TryParse(Regex.Match(normalisedTitle, @"(?:(?:18|19|20|21)[0-9]{2})").ToString(), out int SeasonID);
+                                    var Country = Countries.FirstOrDefault(x => normalisedTitle.Contains(x.Key, StringComparison.OrdinalIgnoreCase)).Value;
 
-                                    var Episode = tmp3.FirstOrDefault();
+                                    var ShowType = NormaliseShowType(normalisedTitle);
+                                    Console.WriteLine($"ShowType: {ShowType}");
 
-                                    if (Episode != null)
+                                    if (ShowType == null)
                                     {
-                                        var Quality = Regex.Match(ReleasePost.Title, @"(2160[Pp]|4[Kk]|1080[Pp]|720[Pp]|480[Pp]|240[Pp])", RegexOptions.IgnoreCase);
+                                        Console.WriteLine($"Dropping unrecognised/unwanted session type: {ReleasePost.Title}");
+                                    }
+                                    else if (Country != null)
+                                    {
+                                        var Series = await _seriesApi.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
+                                        //Get all Episodes
+                                        var tmp = await _episodeApi.ApiV3EpisodeGetAsync(Series[0].Id);
+                                        //Find Correct Year
+                                        var tmp1 = tmp.Where(x => x.SeasonNumber == SeasonID);
+                                        //Find Correct Country
+                                        var tmp2 = tmp1.Where(x => x.Title.Contains(Country, StringComparison.OrdinalIgnoreCase));
+                                        //Find correct session episode
+                                        IEnumerable<EpisodeResource> tmp3 = GetEpisodesByShowType(tmp2, seriesInfo.Title, ShowType);
 
-                                        var SeriesMap = await _seriesApi.ApiV3SeriesIdGetAsync(Episode.SeriesId);
+                                        var Episode = tmp3.FirstOrDefault();
 
-                                        if (SeriesMap != null)
+                                        if (Episode != null)
                                         {
-                                            var SceneMapping = new AlternateTitleResource() { Title = Episode.Title, SeasonNumber = Episode.SeasonNumber, SceneSeasonNumber = Episode.SceneSeasonNumber };
+                                            var Quality = Regex.Match(ReleasePost.Title, @"(2160[Pp]|4[Kk]|1080[Pp]|720[Pp]|480[Pp]|240[Pp])", RegexOptions.IgnoreCase);
 
-                                            ReleasePost.SceneMapping = SceneMapping;
-                                            ReleasePost.TvdbId = SeriesMap.TvdbId;
-                                            ReleasePost.Title = $"{SeriesMap.Title} - S{Episode.SeasonNumber}E{string.Format("{0:00}", Episode.EpisodeNumber)} - {Episode.Title} {Quality}";
-                                            ReleasePost.SeriesId = SeriesMap.Id;
-                                            ReleasePost.SeasonNumber = Episode.SeasonNumber;
-                                            ReleasePost.EpisodeNumbers = new List<int?>() { Episode.EpisodeNumber };
+                                            var SeriesMap = await _seriesApi.ApiV3SeriesIdGetAsync(Episode.SeriesId);
+
+                                            if (SeriesMap != null)
+                                            {
+                                                var SceneMapping = new AlternateTitleResource() { Title = Episode.Title, SeasonNumber = Episode.SeasonNumber, SceneSeasonNumber = Episode.SceneSeasonNumber };
+
+                                                ReleasePost.SceneMapping = SceneMapping;
+                                                ReleasePost.TvdbId = SeriesMap.TvdbId;
+                                                ReleasePost.Title = $"{SeriesMap.Title} - S{Episode.SeasonNumber}E{string.Format("{0:00}", Episode.EpisodeNumber)} - {Episode.Title} {Quality}";
+                                                ReleasePost.SeriesId = SeriesMap.Id;
+                                                ReleasePost.SeasonNumber = Episode.SeasonNumber;
+                                                ReleasePost.EpisodeNumbers = new List<int?>() { Episode.EpisodeNumber };
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"No matching country found in: {ReleasePost.Title}");
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.ToString());
+                                if (bugsnagEnabled)
+                                {
+                                    _bugsnag.Notify(ex);
+                                }
+                            }
+
+                            try
+                            {
+                                var response = await _releasePushApi.ApiV3ReleasePushPostAsync(ReleasePost);
+
+                                if (response != null)
+                                {
+                                    foreach (var r in response)
+                                    {
+                                        if (r.Rejected == false)
+                                        {
+                                            _hashes.Add(r);
                                         }
                                     }
                                 }
-                                else
+
+                                var result = response;
+
+                                Console.WriteLine($"Pushing to Sonarr: {ReleasePost.Title}");
+
+                                await context.Response.WriteAsJsonAsync(result);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.ToString());
+                                if (bugsnagEnabled)
                                 {
-                                    Console.WriteLine($"No matching country found in: {ReleasePost.Title}");
+                                    _bugsnag.Notify(ex);
                                 }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.ToString());
-                            if (bugsnagEnabled)
-                            {
-                                _bugsnag.Notify(ex);
-                            }
-                        }
-
-                        try
-                        {
-                            var response = await _releasePushApi.ApiV3ReleasePushPostAsync(ReleasePost);
-
-                            if (response != null)
-                            {
-                                foreach (var r in response)
-                                {
-                                    if (r.Rejected == false)
-                                    {
-                                        _hashes.Add(r);
-                                    }
-                                }
-                            }
-
-                            var result = response;
-
-                            Console.WriteLine($"Pushing to Sonarr: {ReleasePost.Title}");
-
-                            await context.Response.WriteAsJsonAsync(result);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.ToString());
-                            if (bugsnagEnabled)
-                            {
-                                _bugsnag.Notify(ex);
                             }
                         }
                     }
                 }
-            }
             });
 
             app.Run();

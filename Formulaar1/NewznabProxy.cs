@@ -253,8 +253,8 @@ namespace Formulaar1
                     !t.Contains("Shootout", StringComparison.OrdinalIgnoreCase),
 
                 "Sprint Race" => t => t.Contains("Sprint Race", StringComparison.OrdinalIgnoreCase),
-                "Sprint"      => t => t.Contains("Sprint Race", StringComparison.OrdinalIgnoreCase),
-                "Feature Race"=> t => t.Contains("Feature Race", StringComparison.OrdinalIgnoreCase),
+                "Sprint" => t => t.Contains("Sprint Race", StringComparison.OrdinalIgnoreCase),
+                "Feature Race" => t => t.Contains("Feature Race", StringComparison.OrdinalIgnoreCase),
 
                 "Race" when !isF1 => t => t.Contains("Feature Race", StringComparison.OrdinalIgnoreCase),
 

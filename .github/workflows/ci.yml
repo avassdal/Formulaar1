@@ -65,19 +65,24 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Restore
+        run: dotnet restore Formulaar1/Formulaar1.csproj --runtime ${{ matrix.rid }}
+
       - name: Publish ${{ matrix.rid }}
         run: |
           dotnet publish Formulaar1/Formulaar1.csproj \
             --configuration Release \
             --runtime ${{ matrix.rid }} \
             --self-contained true \
+            --no-restore \
             -p:PublishSingleFile=true \
             -p:DebugType=none \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
             --output publish/${{ matrix.rid }}
 
       - name: Rename binary
         run: |
-          src=$(find publish/${{ matrix.rid }} -maxdepth 1 -type f -name "Formulaar1*" ! -name "*.json" | head -1)
+          src=$(find publish/${{ matrix.rid }} -maxdepth 1 -type f \( -name "Formulaar1" -o -name "Formulaar1.exe" \) | head -1)
           mv "$src" publish/${{ matrix.artifact }}
 
       - name: Upload artifact

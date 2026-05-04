@@ -25,10 +25,12 @@ namespace Formulaar1
         {
             var queryString = context.Request.QueryString.Value ?? string.Empty;
 
-            // Forward request to Prowlarr, injecting its API key
+            // Prowlarr aggregate Newznab endpoint
             var prowlarrUrl = $"{prowlarrBasePath.TrimEnd('/')}/api/v1/indexer/all/newznab{queryString}";
             if (!prowlarrUrl.Contains("apikey="))
                 prowlarrUrl += (queryString.Length > 0 ? "&" : "?") + $"apikey={prowlarrApiKey}";
+
+            Console.WriteLine($"[Newznab] → {prowlarrUrl}");
 
             HttpResponseMessage prowlarrResponse;
             try
@@ -43,6 +45,7 @@ namespace Formulaar1
                 return;
             }
 
+            Console.WriteLine($"[Newznab] ← {(int)prowlarrResponse.StatusCode}");
             var xml = await prowlarrResponse.Content.ReadAsStringAsync();
 
             // Pass through non-search responses (caps, auth errors, etc.) unchanged

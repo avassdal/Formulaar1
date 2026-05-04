@@ -109,6 +109,7 @@ Formulaar1 can also act as a Newznab proxy between Sonarr and Prowlarr. This all
 
 2. In Sonarr → Settings → Indexers, add a new **Newznab** indexer:
    - **URL:** `http://127.0.0.1:5000/newznab`
+   - **API Path:** `/api`
    - **API Key:** your Prowlarr API key (passed through transparently)
 
 3. Remove or disable the existing Prowlarr indexer in Sonarr (to avoid duplicate grabs).

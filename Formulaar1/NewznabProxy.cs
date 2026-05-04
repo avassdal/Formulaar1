@@ -40,8 +40,8 @@ namespace Formulaar1
             HttpClient httpClient,
             string prowlarrBasePath,
             string prowlarrApiKey,
-            SeriesApi seriesApi,
-            EpisodeApi episodeApi)
+            string sonarrBasePath,
+            string sonarrApiKey)
         {
             var queryString = context.Request.QueryString.Value ?? string.Empty;
             var tParam = context.Request.Query["t"].ToString().ToLowerInvariant();
@@ -132,7 +132,7 @@ namespace Formulaar1
             string mergedXml;
             try
             {
-                mergedXml = await RewriteTitlesAsync(templateDoc, seriesApi, episodeApi);
+                mergedXml = await RewriteTitlesAsync(templateDoc, httpClient, sonarrBasePath, sonarrApiKey);
             }
             catch (Exception ex)
             {
@@ -146,7 +146,7 @@ namespace Formulaar1
         }
 
         private static async Task<string> RewriteTitlesAsync(
-            XDocument doc, SeriesApi seriesApi, EpisodeApi episodeApi)
+            XDocument doc, HttpClient httpClient, string sonarrBasePath, string sonarrApiKey)
         {
 
             XNamespace torznab = "http://torznab.com/schemas/2015/feed";
@@ -160,7 +160,7 @@ namespace Formulaar1
                 if (titleEl == null) continue;
 
                 var originalTitle = titleEl.Value;
-                var rewritten = await TryRewriteTitleAsync(originalTitle, seriesApi, episodeApi);
+                var rewritten = await TryRewriteTitleAsync(originalTitle, httpClient, sonarrBasePath, sonarrApiKey);
 
                 if (rewritten != null && rewritten != originalTitle)
                 {
@@ -180,8 +180,15 @@ namespace Formulaar1
                 : doc.ToString();
         }
 
+        private static readonly System.Text.Json.JsonSerializerOptions _lenientJson = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
+            UnknownTypeHandling = System.Text.Json.Serialization.JsonUnknownTypeHandling.JsonNode,
+        };
+
         private static async Task<string?> TryRewriteTitleAsync(
-            string originalTitle, SeriesApi seriesApi, EpisodeApi episodeApi)
+            string originalTitle, HttpClient httpClient, string sonarrBasePath, string sonarrApiKey)
         {
             var normalisedTitle = originalTitle.Replace(".", " ").Replace("-", " ");
             var seriesInfo = DetectSeries(normalisedTitle);
@@ -200,24 +207,48 @@ namespace Formulaar1
             var showType = NormaliseShowType(normalisedTitle);
             if (showType == null) return null;
 
-            var seriesList = await seriesApi.ApiV3SeriesGetAsync(seriesInfo.TvdbId);
-            if (seriesList == null || seriesList.Count == 0) return null;
+            var base_ = sonarrBasePath.TrimEnd('/');
+            using var req1 = new HttpRequestMessage(HttpMethod.Get,
+                $"{base_}/api/v3/series?tvdbId={seriesInfo.TvdbId}");
+            req1.Headers.Add("X-Api-Key", sonarrApiKey);
+            var resp1 = await httpClient.SendAsync(req1);
+            var seriesJson = await resp1.Content.ReadAsStringAsync();
+            using var seriesDoc = System.Text.Json.JsonDocument.Parse(seriesJson);
+            var seriesArr = seriesDoc.RootElement;
+            if (seriesArr.GetArrayLength() == 0) return null;
+            var seriesId = seriesArr[0].GetProperty("id").GetInt32();
+            var seriesTitle = seriesArr[0].GetProperty("title").GetString();
 
-            var episodes = await episodeApi.ApiV3EpisodeGetAsync(seriesList[0].Id);
-            var candidates = episodes
-                .Where(x => x.SeasonNumber == seasonId)
-                .Where(x => x.Title.Contains(country, StringComparison.OrdinalIgnoreCase));
+            using var req2 = new HttpRequestMessage(HttpMethod.Get,
+                $"{base_}/api/v3/episode?seriesId={seriesId}");
+            req2.Headers.Add("X-Api-Key", sonarrApiKey);
+            var resp2 = await httpClient.SendAsync(req2);
+            var episodesJson = await resp2.Content.ReadAsStringAsync();
+            using var episodesDoc = System.Text.Json.JsonDocument.Parse(episodesJson);
 
-            var matched = GetEpisodesByShowType(candidates, seriesInfo.Title, showType).FirstOrDefault();
+            System.Text.Json.JsonElement? matched = null;
+            foreach (var ep in episodesDoc.RootElement.EnumerateArray())
+            {
+                if (!ep.TryGetProperty("seasonNumber", out var snProp) || snProp.GetInt32() != seasonId) continue;
+                if (!ep.TryGetProperty("title", out var titleProp)) continue;
+                var epTitle = titleProp.GetString() ?? "";
+                if (!epTitle.Contains(country, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (!ep.TryGetProperty("episodeNumber", out _)) continue;
+                matched = ep;
+                break;
+            }
+
             if (matched == null) return null;
 
             var quality = Regex.Match(originalTitle,
                 @"(2160[Pp]|4[Kk]|1080[Pp]|720[Pp]|480[Pp]|240[Pp])", RegexOptions.IgnoreCase);
 
-            var seriesDetail = await seriesApi.ApiV3SeriesIdGetAsync(matched.SeriesId);
-            if (seriesDetail == null) return null;
+            var sn = matched.Value.GetProperty("seasonNumber").GetInt32();
+            var en = matched.Value.GetProperty("episodeNumber").GetInt32();
+            var epTitleFinal = matched.Value.GetProperty("title").GetString();
 
-            return $"{seriesDetail.Title} - S{matched.SeasonNumber}E{matched.EpisodeNumber:00} - {matched.Title} {quality}".TrimEnd();
+            return $"{seriesTitle} - S{sn}E{en:00} - {epTitleFinal} {quality}".TrimEnd();
         }
     }
 }

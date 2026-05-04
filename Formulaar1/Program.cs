@@ -150,7 +150,7 @@ namespace Formulaar1
                     await context.Response.WriteAsync("Prowlarr not configured. Set APICredentials:Prowlarr:BasePath and ApiKey.");
                     return;
                 }
-                await NewznabProxy.HandleAsync(context, _httpClient, ProwlarrBasePath!, ProwlarrApiKey!, _seriesApi!, _episodeApi!);
+                await NewznabProxy.HandleAsync(context, _httpClient, ProwlarrBasePath!, ProwlarrApiKey!, BaseSonarPath!, SonarApiKey!);
             });
 
             _ = app.Use(async (context, next) =>

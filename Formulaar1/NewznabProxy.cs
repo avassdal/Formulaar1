@@ -148,11 +148,13 @@ namespace Formulaar1
         private static async Task<string> RewriteTitlesAsync(
             XDocument doc, HttpClient httpClient, string sonarrBasePath, string sonarrApiKey)
         {
-
             XNamespace torznab = "http://torznab.com/schemas/2015/feed";
 
             var items = doc.Descendants("item").ToList();
             if (items.Count == 0) return doc.ToString();
+
+            // Cache per-tvdbId to avoid repeated Sonarr API calls within one feed
+            var episodeCache = new Dictionary<int, (string seriesTitle, List<System.Text.Json.JsonElement> episodes)>();
 
             foreach (var item in items)
             {
@@ -160,7 +162,7 @@ namespace Formulaar1
                 if (titleEl == null) continue;
 
                 var originalTitle = titleEl.Value;
-                var rewritten = await TryRewriteTitleAsync(originalTitle, httpClient, sonarrBasePath, sonarrApiKey);
+                var rewritten = await TryRewriteTitleAsync(originalTitle, httpClient, sonarrBasePath, sonarrApiKey, episodeCache);
 
                 if (rewritten != null && rewritten != originalTitle)
                 {
@@ -180,15 +182,9 @@ namespace Formulaar1
                 : doc.ToString();
         }
 
-        private static readonly System.Text.Json.JsonSerializerOptions _lenientJson = new()
-        {
-            PropertyNameCaseInsensitive = true,
-            NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString,
-            UnknownTypeHandling = System.Text.Json.Serialization.JsonUnknownTypeHandling.JsonNode,
-        };
-
         private static async Task<string?> TryRewriteTitleAsync(
-            string originalTitle, HttpClient httpClient, string sonarrBasePath, string sonarrApiKey)
+            string originalTitle, HttpClient httpClient, string sonarrBasePath, string sonarrApiKey,
+            Dictionary<int, (string seriesTitle, List<System.Text.Json.JsonElement> episodes)> episodeCache)
         {
             var normalisedTitle = originalTitle.Replace(".", " ").Replace("-", " ");
             var seriesInfo = DetectSeries(normalisedTitle);
@@ -207,27 +203,38 @@ namespace Formulaar1
             var showType = NormaliseShowType(normalisedTitle);
             if (showType == null) return null;
 
-            var base_ = sonarrBasePath.TrimEnd('/');
-            using var req1 = new HttpRequestMessage(HttpMethod.Get,
-                $"{base_}/api/v3/series?tvdbId={seriesInfo.TvdbId}");
-            req1.Headers.Add("X-Api-Key", sonarrApiKey);
-            var resp1 = await httpClient.SendAsync(req1);
-            var seriesJson = await resp1.Content.ReadAsStringAsync();
-            using var seriesDoc = System.Text.Json.JsonDocument.Parse(seriesJson);
-            var seriesArr = seriesDoc.RootElement;
-            if (seriesArr.GetArrayLength() == 0) return null;
-            var seriesId = seriesArr[0].GetProperty("id").GetInt32();
-            var seriesTitle = seriesArr[0].GetProperty("title").GetString();
+            if (!episodeCache.TryGetValue(seriesInfo.TvdbId, out var cached))
+            {
+                var base_ = sonarrBasePath.TrimEnd('/');
+                using var req1 = new HttpRequestMessage(HttpMethod.Get,
+                    $"{base_}/api/v3/series?tvdbId={seriesInfo.TvdbId}");
+                req1.Headers.Add("X-Api-Key", sonarrApiKey);
+                var resp1 = await httpClient.SendAsync(req1);
+                var seriesJson = await resp1.Content.ReadAsStringAsync();
+                using var seriesDoc = System.Text.Json.JsonDocument.Parse(seriesJson);
+                var seriesArr = seriesDoc.RootElement;
+                if (seriesArr.GetArrayLength() == 0) return null;
+                var seriesId = seriesArr[0].GetProperty("id").GetInt32();
+                var seriesTitle = seriesArr[0].GetProperty("title").GetString() ?? "";
 
-            using var req2 = new HttpRequestMessage(HttpMethod.Get,
-                $"{base_}/api/v3/episode?seriesId={seriesId}");
-            req2.Headers.Add("X-Api-Key", sonarrApiKey);
-            var resp2 = await httpClient.SendAsync(req2);
-            var episodesJson = await resp2.Content.ReadAsStringAsync();
-            using var episodesDoc = System.Text.Json.JsonDocument.Parse(episodesJson);
+                using var req2 = new HttpRequestMessage(HttpMethod.Get,
+                    $"{base_}/api/v3/episode?seriesId={seriesId}");
+                req2.Headers.Add("X-Api-Key", sonarrApiKey);
+                var resp2 = await httpClient.SendAsync(req2);
+                var episodesJson = await resp2.Content.ReadAsStringAsync();
+                using var episodesDoc = System.Text.Json.JsonDocument.Parse(episodesJson);
+                var episodes = episodesDoc.RootElement.EnumerateArray()
+                    .Select(e => e.Clone())
+                    .ToList();
+
+                cached = (seriesTitle, episodes);
+                episodeCache[seriesInfo.TvdbId] = cached;
+            }
+
+            var seriesTitleFinal = cached.seriesTitle;
 
             // Collect candidates: correct season + country in title
-            var candidates = episodesDoc.RootElement.EnumerateArray()
+            var candidates = cached.episodes.AsEnumerable()
                 .Where(ep =>
                     ep.TryGetProperty("seasonNumber", out var snProp) && snProp.GetInt32() == seasonId &&
                     ep.TryGetProperty("title", out var titleProp) &&
@@ -283,7 +290,7 @@ namespace Formulaar1
             var en = matched.Value.GetProperty("episodeNumber").GetInt32();
             var epTitleFinal = matched.Value.GetProperty("title").GetString();
 
-            return $"{seriesTitle} - S{sn}E{en:00} - {epTitleFinal} {quality}".TrimEnd();
+            return $"{seriesTitleFinal} - S{sn}E{en:00} - {epTitleFinal} {quality}".TrimEnd();
         }
     }
 }
